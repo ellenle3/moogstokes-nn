@@ -20,135 +20,133 @@ a polinomial
 6- Press "r" key at any time to reset to the original spectrum
 """
 
-# import pylab as plt
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.interpolate import splrep,splev
+from scipy.interpolate import splrep, splev
 import sys
 import os
-from scipy.signal import savgol_filter,spline_filter
-from scipy import interpolate
-from fnmatch import fnmatch
+import copy
 
 from spectra import *
 
 
-BAND_W_LIMS = {'J':[12600, 13700], 'K':[20800, 24000], 'M':[45100, 52300]}
-continuum = []
+BAND_W_LIMS = {'J': [12600, 13700], 'K': [20800, 24000], 'M': [45100, 52300]}
+
+# Mutable state dict — avoids global/local scoping issues in event handlers
+state = {}
 
 
 def onclick(event):
-    # when none of the toolbar buttons is activated and the user clicks in the
-    # plot somewhere, compute the median value of the spectrum in a 10angstrom
-    # window around the x-coordinate of the clicked point. The y coordinate
-    # of the clicked point is not important. Make sure the continuum points
-    # `feel` it when it gets clicked, set the `feel-radius` (picker) to 5 points
     toolbar = plt.get_current_fig_manager().toolbar
-    if event.button==1 and toolbar.mode=='':
-        count=0
-        #window = ((event.xdata-2)<=wave) & (wave<=(event.xdata+2))
-        # window = ((event.xdata-5.e-4)<=wave) & (wave<=(event.xdata+5.e-4))
-        #y = np.median(flux[window])
-        y = event.ydata
-        plt.plot(event.xdata,y,'gs',ms=5,picker=2,label='cont_pnt')
-    plt.draw()
+    if (event.button == 1
+            and toolbar.mode == ''
+            and not event.dblclick
+            and event.xdata is not None
+            and event.ydata is not None):
+        plt.plot(event.xdata, event.ydata, 'gs', ms=5, picker=2, label='cont_pnt')
+        plt.draw()
 
 
 def onpick(event):
-    # when the user clicks right on a continuum point, remove it
-    if event.mouseevent.button==3:
-        if hasattr(event.artist,'get_label') and event.artist.get_label()=='cont_pnt':
+    if event.mouseevent.button == 3:
+        if hasattr(event.artist, 'get_label') and event.artist.get_label() == 'cont_pnt':
             event.artist.remove()
+    plt.draw()
+
 
 def ontype(event):
-    # when the user hits enter:
-    # 1. Cycle through the artists in the current axes. If it is a continuum
-    #    point, remember its coordinates. If it is the fitted continuum from the
-    #    previous step, remove it
-    # 2. sort the continuum-point-array according to the x-values
-    # 3. fit a spline and evaluate it in the wavelength points
-    # 4. plot the continuum
-    if event.key=='enter':
+    wave     = state['wave']       # unbinned
+    flux     = state['flux']       # unbinned
+    uncert   = state['uncert']     # unbinned
+    filename = state['filename']
+    data_binned = state['data_binned']
+
+    if event.key == 'enter':
         cont_pnt_coord = []
         for artist in plt.gca().get_children():
-            if hasattr(artist,'get_label') and artist.get_label()=='cont_pnt':
+            if hasattr(artist, 'get_label') and artist.get_label() == 'cont_pnt':
                 cont_pnt_coord.append(artist.get_data())
-            elif hasattr(artist,'get_label') and artist.get_label()=='continuum':
+            elif hasattr(artist, 'get_label') and artist.get_label() == 'continuum':
                 artist.remove()
-        cont_pnt_coord = np.array(cont_pnt_coord)[...,0]
-        sort_array = np.argsort(cont_pnt_coord[:,0])
-        x,y = cont_pnt_coord[sort_array].T
-        spline = splrep(x,y,k=1)
-        continuum = splev(wave,spline)
-        plt.plot(wave,continuum,'r-',lw=2,label='continuum')
-    # when the user hits 'n' and a spline-continuum is fitted, normalise the
-    if event.key=='n':
+        cont_pnt_coord = np.array(cont_pnt_coord)[..., 0]
+        sort_array = np.argsort(cont_pnt_coord[:, 0])
+        x, y = cont_pnt_coord[sort_array].T
+        spline = splrep(x, y, k=1)
+        continuum = splev(wave, spline)   # evaluated at unbinned wavelengths
+        plt.plot(wave, continuum, 'r-', lw=2, label='continuum')
+
+    elif event.key == 'n':
         continuum = None
         for artist in plt.gca().get_children():
-            if hasattr(artist,'get_label') and artist.get_label()=='continuum':
+            if hasattr(artist, 'get_label') and artist.get_label() == 'continuum':
                 continuum = artist.get_data()[1]
                 break
         if continuum is not None:
+            norm_flux = flux / continuum
+            norm_err  = uncert / continuum
             plt.cla()
-            plt.plot(wave,flux/continuum,'k-',label='normalised')
-            plt.plot(wave,uncert/continuum,'r-',label='uncertainty')
-            ymed = np.nanmedian(flux/continuum)
-            plt.ylim(ymed/2, ymed*1.5)
+            plt.plot(wave, norm_flux, 'k-', label='normalised')
+            plt.plot(wave, norm_err,  'r-', label='uncertainty')
+            finite = norm_flux[np.isfinite(norm_flux)]
+            if finite.size > 0:
+                ymed = np.median(finite)
+                plt.ylim(ymed / 2, ymed * 1.5)
             plt.plot(wave, np.ones_like(wave), c='cyan', alpha=0.5)
-  
-    # when the user hits 'r': clear the axes and plot the original spectrum
-    elif event.key=='r':
+
+    elif event.key == 'u':
+        cont_points = [a for a in plt.gca().get_children()
+                       if hasattr(a, 'get_label') and a.get_label() == 'cont_pnt']
+        if cont_points:
+            cont_points[-1].remove()
+
+    elif event.key == 'r':
         plt.cla()
-        plt.plot(wave,flux,'k-')
+        plt.plot(data_binned.x, data_binned.y, 'k-', linewidth=0.7)
         ymed = np.nanmedian(flux)
-        plt.ylim(ymed/2, ymed*1.5)
+        plt.ylim(ymed / 2, ymed * 1.5)
 
     elif event.key == 'w':
         normalized_flux = []
-        normalized_err = []
+        normalized_err  = []
         for artist in plt.gca().get_children():
-            if hasattr(artist,'get_label') and artist.get_label()=='normalised':
-                data = np.array(artist.get_data())
-                normalized_flux = data[1]
-                # np.savetxt(os.path.splitext(filename)[0]+'.nspec',data.T)
-                print('flux Saved to file')
-                # break
-
-            elif hasattr(artist,'get_label') and artist.get_label()=='uncertainty':
-                data2 = np.array(artist.get_data())
-                normalized_err = data2[1]
-                # np.savetxt(os.path.splitext(filename)[0]+'.nspec',data.T)
-                print('error Saved to file')
+            if hasattr(artist, 'get_label') and artist.get_label() == 'normalised':
+                normalized_flux = np.array(artist.get_data())[1]
+                print('flux saved to file')
+            elif hasattr(artist, 'get_label') and artist.get_label() == 'uncertainty':
+                normalized_err = np.array(artist.get_data())[1]
+                print('error saved to file')
                 break
 
-        save = open(os.path.splitext(filename)[0]+'.nspec', "w")
-        w_length = len(wave)
-        for ii in range(w_length):
-            save.write('{:15} {:>20} {:>20}\n'.format(wave[ii]*1e4, normalized_flux[ii], normalized_err[ii]))
-        save.close()
+        with open(os.path.splitext(filename)[0] + '.nspec', 'w') as f:
+            for ii in range(len(wave)):
+                f.write('{:15} {:>20} {:>20}\n'.format(
+                    wave[ii] * 1e4, normalized_flux[ii], normalized_err[ii]))
         sys.exit()
+
     plt.draw()
 
 
 if __name__ == "__main__":
-    # Get the filename of the spectrum from the command line, and plot it
     filename = sys.argv[1]
-    data = ProplydData(filename)
-    wave, flux, uncert = data.x, data.y, data.yerr
+    data = SpectralData(filename)
 
-    # x = np.isnan(flux)
-    # flux[x]=np.nanmedian(flux)
-    # smoothed_flux=savgol_filter(flux, window_length=27, polyorder=2)
-    spectrum, = plt.plot(wave,flux,'k-',label='spectrum',linewidth=0.7)
-    ymed = np.nanmedian(flux)
-    plt.ylim(ymed/2, ymed*1.5)
-    # spectrum, = plt.plot(wave,smoothed_flux,'r-',label='smoothed',linewidth=0.7)
-    
+    # Copy unbinned arrays before any modification
+    state['wave']     = np.array(data.x)
+    state['flux']     = np.array(data.y)
+    state['uncert']   = np.array(data.yerr)
+    state['filename'] = filename
 
+    # Binned copy for display only
+    data_binned = copy.deepcopy(data)
+    data_binned.Nyquist_bin_spectrum(3)
+    state['data_binned'] = data_binned
+
+    plt.plot(data_binned.x, data_binned.y, 'k-', label='spectrum', linewidth=0.7)
+    ymed = np.nanmedian(state['flux'])
+    plt.ylim(ymed / 2, ymed * 1.5)
     plt.title(filename)
-    # Connect the different functions to the different events
-    plt.gcf().canvas.mpl_connect('button_press_event',onclick)
-    plt.gcf().canvas.mpl_connect('pick_event',onpick)
-    plt.gcf().canvas.mpl_connect('key_press_event',ontype)
-    plt.show() # show the window
-    # plt.ion()
+
+    plt.gcf().canvas.mpl_connect('button_press_event', onclick)
+    plt.gcf().canvas.mpl_connect('pick_event',         onpick)
+    plt.gcf().canvas.mpl_connect('key_press_event',    ontype)
+    plt.show()

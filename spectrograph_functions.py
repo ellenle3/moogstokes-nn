@@ -3,6 +3,12 @@ import numpy as np
 from spectra import *
 import matplotlib.pyplot as plt
 
+
+def Lorentz_Cauchy(sigma, x):
+    x0 = x[len(x) // 2]  # center on the middle of the array
+    kernel = (1 / np.pi) * sigma / ((x - x0)**2 + sigma**2)
+    return kernel / np.sum(kernel)  # normalize
+
 def instrumental_response(flux, wavelength, resolution, Kernel='box', reference_wavelength = None):
     """
     Instrumental response of the spectrograph convolution. Two convolution kernels
@@ -72,6 +78,8 @@ def instrumental_response(flux, wavelength, resolution, Kernel='box', reference_
 
         kernel_not_normalized = convolve(kernel_voigt_norm, Box, boundary='extend')
 
+        kernel = kernel_not_normalized/ sum(kernel_not_normalized)
+
         # plt.plot(kernel,marker='.')
         # plt.show()
 
@@ -92,7 +100,7 @@ if __name__ == "__main__":
 
     # ProplydData is a simple class that stores the data and has some built-in methods
     # to help with data processing
-    obj = ProplydData(fname)
+    obj = SpectralData(fname)
 
     # Let's nyquist sample the data. This assumes that we are using iSHELL 0.75'' slit width with is
     # over sampled by 6 pixels per resolution element. We are bring it down to 2 (Nyquist)

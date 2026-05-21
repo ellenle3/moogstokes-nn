@@ -24,7 +24,7 @@ class ParamScaler:
     param_order = ["Teff", "logg", "B", "vsini"]
     param_units = {
         "Teff": "K",
-        "logg": "dex",
+        "logg": r"cm s$^{-2}$",
         "B": "kG",
         "vsini": "km/s"
     }
@@ -186,17 +186,14 @@ class SpectralInterpolatorNeuralNetwork(nn.Module):
         self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(num_params, 64),
-            #nn.LeakyReLU(0.01),
             nn.GELU(),
             nn.LayerNorm(64),
 
             nn.Linear(64, 128),
-            #nn.LeakyReLU(0.01),
             nn.GELU(),
             nn.LayerNorm(128),
 
             nn.Linear(128, 256),
-            #nn.LeakyReLU(0.01),
             nn.GELU(),
             nn.LayerNorm(256),
 

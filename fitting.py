@@ -10,6 +10,7 @@ from scipy.interpolate import interp1d
 from spectra import SpectralData, MoogStokesModel, BTSettlModel, setup_regions_plot
 from astropy.io import fits
 from interpolate_moogstokes import interpolate_moogstokes_models
+from nn_helpers import MoogStokesNN
 
 def chi_squared(ydata: NDArray, yerrdata: NDArray, ymodel: NDArray) -> float:
     """Calculate the chi-squared statistic for the given data and model spectrum.
@@ -204,7 +205,7 @@ def compute_reduced_chi2_bestfit(
 
 def automatic_wavelength_shifts_values(data: SpectralData, Teff: float, logg:
                                 float, rK: float, vsini: float,
-                                 B: float, guess_shift: int, regions: list[int] | None = None) -> NDArray:
+                                 B: float, guess_shift: int, regions: list[int] | None = None, use_nn: bool = False) -> NDArray:
 
     """
     find the best pixel shifts for a specified number of regions for a given model.
@@ -230,6 +231,9 @@ def automatic_wavelength_shifts_values(data: SpectralData, Teff: float, logg:
     shift_array=range(-30+guess_shift,30+guess_shift)
     chi2 = np.zeros( (len(regions), len(shift_array)) )
 
+    if use_nn:
+        moognn = MoogStokesNN()
+    
     for nn, r in enumerate(regions):
 
         for ii, shifts in enumerate(shift_array):
@@ -242,8 +246,11 @@ def automatic_wavelength_shifts_values(data: SpectralData, Teff: float, logg:
             xdata = np.array(xdata)
             ydata = np.array(ydata)
             yerrdata = np.array(yerrdata)
-
-            model = MoogStokesModel(Teff, logg, rK, B, vsini, r)
+            
+            if use_nn:
+                model = moognn.make_moogstokes_model(Teff, logg, rK, B, vsini, r)
+            else:
+                model = MoogStokesModel(Teff, logg, rK, B, vsini, r)
             ymodel = model.interpolate(xdata)
             ymodel = np.array(ymodel)
 

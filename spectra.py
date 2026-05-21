@@ -667,8 +667,16 @@ class SpectralDataForMoogStokes(SpectralData):
 
     def __init__(self, fname: str, name: str | None = None, renormalization: NDArray | None = None,
                 shifts: NDArray | None = None, regions: Union[range, list[int]] | None = None,
-                resolution: float | None = None, kernel: str | None = None) -> None:
-        
+                resolution: float | None = None, kernel: str | None = None,
+                masks: dict[int, list[tuple[float, float]]] | None = None) -> None:
+        """
+        Parameters
+        ----------
+        masks : dict mapping region index → list of (xlo, xhi) tuples, optional
+            Wavelength intervals within each region to use for chi-squared evaluation.
+            Regions absent from the dict (or with an empty list) use the full region.
+            Example: {0: [(21120, 21130), (21150, 21165)], 3: [(22010, 22050)]}
+        """
         if regions is None:
             regions = range(7)
 
@@ -685,6 +693,7 @@ class SpectralDataForMoogStokes(SpectralData):
         self.shifts = shifts
         self.resolution = resolution
         self.kernel = kernel
+        self.masks = masks if masks is not None else {}
 
         self.generate_moog_regions()
 
@@ -705,7 +714,7 @@ class SpectralDataForMoogStokes(SpectralData):
             yreg_shifted = np.roll(yreg_pad, int(self.shifts[r]))[p:-p]
             yerrreg_shifted = np.roll(yerrreg_pad, int(self.shifts[r]))[p:-p]
 
-         # Crop down to original region limits
+            # Crop down to original region limits
             xreg_mask = (xreg >= xlo) & (xreg <= xhi)
             xreg = xreg[xreg_mask]
             yreg_shifted = yreg_shifted[xreg_mask]

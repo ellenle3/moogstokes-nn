@@ -5,6 +5,7 @@ __pycache__/
 data
 figures
 **/.DS_Store
+scripts
 
 # C extensions
 *.so
