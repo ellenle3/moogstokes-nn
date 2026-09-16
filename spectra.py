@@ -14,6 +14,7 @@ import hashlib
 from typing import Union
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.ndimage
 
 from scipy.interpolate import interp1d
 from fnmatch import fnmatch
@@ -21,6 +22,23 @@ from astropy.io import fits
 from numpy.typing import NDArray
 from scipy.signal import savgol_filter
 from spectrograph_functions import instrumental_response
+
+def shift_flux(y: NDArray, yerr: NDArray, shift: int, fill_value: float = 1) -> tuple[NDArray, NDArray]:
+    """Shifts flux array. Allows for subpixel shifts.
+
+    Parameters
+    ----------
+    shift: float
+        Array elements to shift by.
+    """
+    y = y.copy()
+    yerr = yerr.copy()
+
+    # allow for subpixel shifts through interpolation. order = 1 for linear interpolation,
+    # avoids NaN problems
+    y = scipy.ndimage.shift(y, shift, mode='constant', cval=fill_value, order=1)
+    yerr = scipy.ndimage.shift(yerr, shift, mode='constant', cval=fill_value, order=1)
+    return y, yerr
 
 class SpectralData:
     """Stores spectra of science targets.
@@ -93,7 +111,7 @@ class SpectralData:
         mask = (self.x >= xlo) & (self.x <= xhi)
         return self.x[mask], self.y[mask], self.yerr[mask]
     
-    def doppler_shift_data(self, shift: int, p: int = 50, fill_value: float = 1):
+    def doppler_shift_data(self, shift: int, p: int = 50, fill_value: float = 1) -> None:
         """Applies a Doppler shift to the data. The y-values are padded with ones
         (or another fill_value) before rolling the array. Then, it is cropped
         back down to the original dimensions of y. This is also applied to yerr.
@@ -111,10 +129,7 @@ class SpectralData:
         -------
         None
         """
-        y_pad = np.pad(self.y, p, constant_values=fill_value)
-        yerr_pad = np.pad(self.yerr, p, constant_values=fill_value)
-        self.y = np.roll(y_pad, shift)[p:-p]
-        self.y_pad = np.roll(yerr_pad, shift)[p:-p]
+        self.y, self.yerr = shift_flux(self.y, self.yerr, shift, fill_value=fill_value)
 
     def rescale_yerr(self, factor: float):
         """
@@ -708,11 +723,8 @@ class SpectralDataForMoogStokes(SpectralData):
             yreg *= self.renormalization[r]
             yerrreg *= self.renormalization[r]
 
-            # Doppler shifts
-            yreg_pad = np.pad(yreg, p, constant_values=1)
-            yerrreg_pad = np.pad(yerrreg, p, constant_values=1)
-            yreg_shifted = np.roll(yreg_pad, int(self.shifts[r]))[p:-p]
-            yerrreg_shifted = np.roll(yerrreg_pad, int(self.shifts[r]))[p:-p]
+            # allow for subpixel shifts through interpolation
+            yreg_shifted, yerrreg_shifted = shift_flux(yreg, yerrreg, self.shifts[r], fill_value=1.0)
 
             # Crop down to original region limits
             xreg_mask = (xreg >= xlo) & (xreg <= xhi)

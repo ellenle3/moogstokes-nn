@@ -185,11 +185,7 @@ class SpectralInterpolatorNeuralNetwork(nn.Module):
         super().__init__()
         self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(num_params, 64),
-            nn.GELU(),
-            nn.LayerNorm(64),
-
-            nn.Linear(64, 128),
+            nn.Linear(num_params, 128),
             nn.GELU(),
             nn.LayerNorm(128),
 
@@ -198,14 +194,6 @@ class SpectralInterpolatorNeuralNetwork(nn.Module):
             nn.LayerNorm(256),
 
             nn.Linear(256, 512),
-            nn.GELU(),
-            nn.LayerNorm(512),
-
-            nn.Linear(512, 512),
-            nn.GELU(),
-            nn.LayerNorm(512),
-
-            nn.Linear(512, 512),
             nn.GELU(),
             nn.LayerNorm(512),
 
@@ -279,7 +267,7 @@ class MoogStokesNN:
             pred = nn(x)
             y_pred = pred.cpu().numpy()[0]
             # smooth noise in the predicted spectrum
-            y_pred = savgol_filter(y_pred, window_length=11, polyorder=3)
+            y_pred = savgol_filter(y_pred, window_length=8, polyorder=3)
 
         # Make a MoogStokesModel object, but skip the __init__ as we are not
         # importing from a file

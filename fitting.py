@@ -205,7 +205,9 @@ def compute_reduced_chi2_bestfit(
 
 def automatic_wavelength_shifts_values(data: SpectralData, Teff: float, logg:
                                 float, rK: float, vsini: float,
-                                 B: float, guess_shift: int, regions: list[int] | None = None, use_nn: bool = False) -> NDArray:
+                                 B: float, guess_shift: int, regions: list[int] | None = None,
+                                 size: float = 30, spacing: float = 1,
+                                 use_nn: bool = False) -> NDArray:
 
     """
     find the best pixel shifts for a specified number of regions for a given model.
@@ -225,19 +227,21 @@ def automatic_wavelength_shifts_values(data: SpectralData, Teff: float, logg:
     if regions is None:
         regions = range(7)
 
-
     best_shift=np.empty(len(regions))
 
-    shift_array=range(-30+guess_shift,30+guess_shift)
+    shift_array = np.arange(-size + guess_shift, size + guess_shift, spacing)
     chi2 = np.zeros( (len(regions), len(shift_array)) )
 
     if use_nn:
         moognn = MoogStokesNN()
+
+    data_original = copy.deepcopy(data)
     
     for nn, r in enumerate(regions):
 
         for ii, shifts in enumerate(shift_array):
 
+            data = copy.deepcopy(data_original)
             data.doppler_shift_data(shifts)
 
             xlo, xhi = MoogStokesModel.region_xlims(r)
@@ -257,11 +261,10 @@ def automatic_wavelength_shifts_values(data: SpectralData, Teff: float, logg:
             chi2[nn, ii] = chi_squared(ydata, yerrdata, ymodel)
 
             ### get spectrum back to original position so another shift can be applied to next region
-            data.doppler_shift_data(-shifts)
-
+            #data.doppler_shift_data(-shifts)
 
         this_region_min_chi2=np.nanmin(chi2[nn,:])
-        best_shift[nn]=shift_array[int(np.nanargmin(chi2[nn,:]))]+guess_shift
+        best_shift[nn]=shift_array[int(np.nanargmin(chi2[nn,:]))]#+guess_shift
         # print(this_region_min_chi2)
         # print(best_shift[nn])
 

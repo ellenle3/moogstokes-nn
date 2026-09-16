@@ -21,8 +21,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 N_REGIONS   = 7
-PARAMS_FILE = "data/spectrum_params.csv"
-KERNELS     = ["box", "SPEX", "KECK", "IGRINS", None]
+PARAMS_FILE = "data/science/spectrum_params.csv"
+MCMC_RESULTS_FILE = "data/science/mcmc_summary.csv"
+KERNELS     = ["box", "SPEX", "KECK", "IGRINS2K", "ISHELL075", None]
 BTN         = dict(fg="black", bg="#d9d9d9", activeforeground="black",
                    activebackground="#c0c0c0", relief="raised", padx=6, pady=2)
 CSV_COLS    = (
@@ -31,6 +32,7 @@ CSV_COLS    = (
     + [f"renorm_{i}" for i in range(N_REGIONS)]
     + [f"mask_{i}" for i in range(N_REGIONS)]
 )
+MCMC_MODEL_COLS = ["Teff", "logg", "rK", "B", "vsini"]
 
 # ── CSV helpers ───────────────────────────────────────────────────────────────
 def load_params_file(path: str) -> dict:
@@ -47,6 +49,15 @@ def save_params_file(records: dict, path: str) -> None:
         w.writerows(records.values())
 
 
+def load_mcmc_results(path: str) -> dict:
+    """Load MCMC results CSV keyed by the 'name' column (spectrum id)."""
+    print(path)
+    if not os.path.exists(path):
+        return {}
+    with open(path, newline="") as f:
+        return {row["name"]: row for row in csv.DictReader(f)}
+
+
 # ── Main application ──────────────────────────────────────────────────────────
 class SpectrumGUI(tk.Tk):
     def __init__(self):
@@ -55,6 +66,7 @@ class SpectrumGUI(tk.Tk):
         self.resizable(True, True)
         self._csv_path_var = tk.StringVar(value=os.path.abspath(PARAMS_FILE))
         self._records = {}
+        self._mcmc_records = load_mcmc_results(MCMC_RESULTS_FILE)
         # Mask state: list of (xlo, xhi) per region
         self._masks         = [[] for _ in range(N_REGIONS)]
         # Per-region first-click x value (None = no pending click)
@@ -196,6 +208,8 @@ class SpectrumGUI(tk.Tk):
                    command=self._auto_shifts, **BTN).pack(side="left", padx=4)
         tk.Button(bottom, text="Run model",
                    command=self._run, **BTN).pack(side="left", padx=4)
+        tk.Button(bottom, text="Reset",
+                   command=self._reset, **BTN).pack(side="left", padx=4)
         self._status_var = tk.StringVar(value="Ready.")
         ttk.Label(bottom, textvariable=self._status_var,
                   foreground="gray").pack(side="left", padx=12)
@@ -363,15 +377,37 @@ class SpectrumGUI(tk.Tk):
         if path:
             self._file_var.set(path)
 
+    def _apply_mcmc_match(self, entered_base: str) -> bool:
+        """Look up the spectrum id (first '.'-split token of the basename)
+        in the MCMC results table and, if found, populate the model
+        parameter fields (Teff, logg, rK, B, vsini). Returns True if a
+        match was found and applied."""
+        spec_id = entered_base.split(".")[0]
+        record = self._mcmc_records.get(spec_id)
+        if record is None:
+            return False
+        try:
+            for key in MCMC_MODEL_COLS:
+                self._model_vars[key].set(record[key])
+        except KeyError:
+            return False
+        return True
+
     def _on_file_change(self):
         fname = self._file_var.get().strip()
         if not fname:
             return
 
         entered_base = os.path.basename(fname)
+        mcmc_matched = self._apply_mcmc_match(entered_base)
+
         record = self._records.get(entered_base) or self._records.get(fname)
 
         if record is None:
+            if mcmc_matched:
+                self._status_var.set(
+                    f"No saved prep params for {entered_base}; "
+                    f"matched MCMC results for id '{entered_base.split('.')[0]}'.")
             return
 
         regions = ast.literal_eval(record["regions"])
@@ -404,8 +440,10 @@ class SpectrumGUI(tk.Tk):
                 self._redraw_masks(i)
         self._canvas.draw_idle()
 
-        self._status_var.set(
-            f"Loaded existing params for: {entered_base}")
+        status = f"Loaded existing params for: {entered_base}"
+        if mcmc_matched:
+            status += f"  |  MCMC match: id '{entered_base.split('.')[0]}'"
+        self._status_var.set(status)
 
     def _collect(self):
         fname = self._file_var.get().strip()
@@ -459,6 +497,26 @@ class SpectrumGUI(tk.Tk):
         self._status_var.set(
             f"Saved → {os.path.basename(csv_path)}  ({len(self._records)} entries)")
 
+    def _reset(self):
+        """Reset region selection, shifts, and model parameters to defaults.
+        Does not touch the loaded file, kernel, nyquist bin, renormalization,
+        masks, or the saved-params CSV."""
+        for v in self._region_vars:
+            v.set(True)
+        for v in self._shift_vars:
+            v.set("0")
+        self._model_vars["ymin"].set("0.65")
+        self._model_vars["ymax"].set("1.08")
+        self._model_vars["Teff"].set("3800")
+        self._model_vars["logg"].set("3.75")
+        self._model_vars["rK"].set("0.5")
+        self._model_vars["B"].set("1.5")
+        self._model_vars["vsini"].set("20.0")
+
+        # for v in self._model_vars.values():
+        #     v.set("0")
+        self._status_var.set("Reset: regions enabled, shifts and model params set to 0.")
+
     def _auto_shifts(self):
         parsed = self._collect()
         if parsed is None:
@@ -491,14 +549,27 @@ class SpectrumGUI(tk.Tk):
             )
             obj.Nyquist_bin_spectrum(nyquist_bin)
 
+            if np.any( np.array(shifts) != 0 ):
+                guess_shift = int(np.median(shifts))
+                size = 1
+                spacing = 0.02
+            else:
+                guess_shift = 0
+                size = 30
+                spacing = 1
+
             auto = automatic_wavelength_shifts_values(
                 copy.deepcopy(obj),
                 Teff=model["Teff"], logg=model["logg"],
                 rK=model["rK"], B=model["B"],
                 vsini=model["vsini"],
-                guess_shift=int(model["guess_shift"]),
+                guess_shift=guess_shift,
+                size=size,
+                spacing=spacing,
                 use_nn=True,
             )
+
+            print(f"Auto shifts: {auto}")
 
             for v, s in zip(self._shift_vars, auto):
                 v.set(f"{s:.4g}")

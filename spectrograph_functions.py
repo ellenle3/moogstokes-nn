@@ -1,4 +1,4 @@
-from astropy.convolution import Gaussian1DKernel, convolve, Box1DKernel
+from astropy.convolution import Gaussian1DKernel, convolve, convolve_fft, Box1DKernel
 import numpy as np
 from spectra import *
 import matplotlib.pyplot as plt
@@ -50,17 +50,27 @@ def instrumental_response(flux, wavelength, resolution, Kernel='box', reference_
         # plt.plot(kernel_not_normalized, drawstyle='steps')
         # plt.show()
 
-    elif Kernel == 'KECK':
-        """
-        Convolve the data with the analytical form obtained for iSHELL K2 0.375''
-        """
+    elif Kernel in ['KECK', 'IGRINS2K', 'ISHELL075']:
+        # these are implemented the same way but with different coeffs
 
-        L_fwhm=0.043
-        G_fwhm=0.446
-        B_fwhm=0.649
+        if Kernel == 'KECK':
+            L_fwhm = 0.043
+            G_fwhm = 0.446
+            B_fwhm = 0.649
 
-        pixel_spacing=resolution
+        elif Kernel == 'IGRINS2K':   # IGRINS-2 K-band from arc lines
+            L_fwhm = 0.139
+            G_fwhm = 0.240
+            B_fwhm = 0.452
 
+        elif Kernel == 'ISHELL075':  # iSHELL 0."75 slit from Flores et al. (2019)
+            L_fwhm = 0.043
+            G_fwhm = 0.246
+            B_fwhm = 0.449
+
+        #pixel_spacing=resolution
+        pixel_spacing = dx # isn't it supposed to be this?
+        
         sigma_g = (G_fwhm/pixel_spacing) / (2 * np.sqrt(2 * np.log(2)))
         kernel_g = Gaussian1DKernel(sigma_g)
 
@@ -73,19 +83,13 @@ def instrumental_response(flux, wavelength, resolution, Kernel='box', reference_
 
         kernel_voigt = convolve(kernel_l, kernel_g, boundary='extend')
         kernel_voigt_norm = kernel_voigt / sum(kernel_voigt)
-
         Box = Box1DKernel(B_fwhm/pixel_spacing, mode='linear_interp')
 
         kernel_not_normalized = convolve(kernel_voigt_norm, Box, boundary='extend')
-
-        kernel = kernel_not_normalized/ sum(kernel_not_normalized)
-
-        # plt.plot(kernel,marker='.')
-        # plt.show()
+        kernel = kernel_not_normalized/ sum(kernel_not_normalized)                
 
     # kernel = kernel_not_normalized/ sum(kernel_not_normalized)
     # kernel = kernel_not_normalized
-
 
     Convolved_data = convolve(flux, kernel, boundary='extend')
 

@@ -100,11 +100,13 @@ def save_mcmc_results(data_path, name, basename, flat_samples, medians, errs):
     for hdu in hdus[1:]:
         hdu.header["NAME"]     = name
         hdu.header["BASENAME"] = basename
-    hdus.writeto(os.path.join(data_path, f"{name}_mcmc.fits"), overwrite=True)
+    fnout = os.path.join(data_path, f"{name}_mcmc.fits")
+    hdus.writeto(fnout, overwrite=True)
+    return fnout
 
 
-def load_mcmc_results(name, data_path="data/science"):
-    with fits.open(os.path.join(data_path, f"{name}_mcmc.fits")) as hdul:
+def load_mcmc_results(name, data_path="data/science", suffix="_mcmc"):
+    with fits.open(os.path.join(data_path, f"{name}{suffix}.fits")) as hdul:
         return {
             "basename":     hdul["CHAIN"].header["BASENAME"],
             "flat_samples": hdul["CHAIN"].data,
@@ -112,7 +114,8 @@ def load_mcmc_results(name, data_path="data/science"):
             "errs":         hdul["ERRS"].data,
         }
 
-def retrieve_spectrum_preproc(basename, data_path="data/science", preparams_fname="spectrum_params.csv"):
+def retrieve_spectrum_preproc(basename, data_path="data/science", preparams_fname="spectrum_params.csv",
+                              regions=None):
 
     with open(os.path.join(data_path, preparams_fname), newline="") as f:
         reader = csv.DictReader(f)
@@ -120,10 +123,9 @@ def retrieve_spectrum_preproc(basename, data_path="data/science", preparams_fnam
             if row["filename"] == basename:                
                 shifts          = np.array([float(row[f"shift_{i}"]) for i in range(7)])
                 renormalization = np.array([float(row[f"renorm_{i}"]) for i in range(7)])
-                regions = range(7)
-                #regions = np.array([0,1,2,4,5])
+                if regions is None:
+                    regions = np.array( ast.literal_eval(row["regions"]) )
                 kernel = row["kernel"]
-                kernel = None
                 resolution = None
                 masks = {}
                 for i in range(7):

@@ -290,3 +290,55 @@ def setup_regions_plot(label_regions=True):
     else:
         axs_new = axs
     return fig, axs_new
+
+def setup_regions_plot_equalx(show_regions=True, valid_regions=range(7)):
+    """Each subplot is the same size in wavelength, with the fitted regions
+    highlighted. More similar to what Christian usually has in his papers.
+
+    Parameters
+    ----------
+    show_regions: bool
+        If True, shades in the fitted regions in green.
+    valid_regions:
+        Regions not included in this list (invalid regions) are shaded in red.
+        Ignored if show_regions = False.
+
+    Returns
+    -------
+    fig, axs : matplotlib Figure and Axes
+        Figure and Axes objects for the regions plot.
+    """
+    PLOT_XSIZE = 240 # angstroms
+    PLOT_XCENTERS = (
+        21120, # regions 0 and 1
+        21850, # regions 2 and 3
+        22080, # region 4 (Na)
+        22250, # region 5
+        22635, # region 6 (Ca)
+        22980, # region 7 (CO)
+    )
+    Nsub = len(PLOT_XCENTERS)
+
+    fig, axs = plt.subplots(nrows=Nsub, ncols=1, figsize=(8.5,7))
+    axs = axs.reshape(-1)
+
+    for i, ax in enumerate(axs):
+
+        xlo = PLOT_XCENTERS[i] - PLOT_XSIZE / 2
+        xhi = PLOT_XCENTERS[i] + PLOT_XSIZE / 2
+        ax.set_xlim(xlo, xhi)
+        ax.set_ylim(0.6, 1.05)
+
+        if show_regions:
+            for n in range(MoogStokesModel.NUM_REGIONS):
+                xlo, xhi = MoogStokesModel.region_xlims(n)
+                if n in valid_regions:
+                    ax.axvspan(xlo, xhi, color='green', alpha=0.2)
+                else:
+                    ax.axvspan(xlo, xhi, color='red', alpha=0.4)
+                
+    fig.supxlabel(r"Wavelength ($\AA$)", fontsize=12)
+    fig.supylabel(r"Normalized Flux Density", fontsize=12)
+    plt.tight_layout()
+
+    return fig, axs
